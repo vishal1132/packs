@@ -8,7 +8,7 @@ EXPOSE 8080
 FROM alpine:3.13.2
 RUN apk add --no-cache tzdata
 COPY --from=build /app/executable /executable
-COPY --from=build /app/static /
+COPY --from=build /app/static /static
 ENV PORT=3000
 EXPOSE 3000
 ENTRYPOINT ["/executable"]
