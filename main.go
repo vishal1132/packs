@@ -1,10 +1,21 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"os/signal"
 	"sync"
+	"syscall"
+	"time"
+
+	"github.com/vishal1132/packs/config"
+)
+
+const (
+	defaultPort = 3000
 )
 
 type app struct {
@@ -13,6 +24,9 @@ type app struct {
 }
 
 func main() {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cfg := config.LoadConfig()
 	a := app{
 		packs: []int{250, 500, 1000, 2000, 5000}, // starting with these.
 	}
@@ -20,6 +34,14 @@ func main() {
 	http.HandleFunc("/calculate-packs", a.calculatePacksHandler)
 	http.Handle("/", http.FileServer(http.Dir("./static")))
 	http.ListenAndServe(":3000", nil)
+	srv := &http.Server{
+		Addr:         fmt.Sprintf(":%d", defaultPort),
+		Handler:      nil,
+		WriteTimeout: time.Duration(cfg.AppConfig.ServerWriteTimeout) * time.Millisecond,
+		ReadTimeout:  time.Duration(cfg.AppConfig.ServerWriteTimeout) * time.Millisecond,
+	}
+	go srv.ListenAndServe()
+	waitForShutdownSignal(ctx, cfg.AppConfig.GracefulShutDownTimeout, srv, cancel)
 }
 
 type packs struct {
@@ -32,7 +54,6 @@ func (a *app) removeSizeInputHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	a.lock.Lock()
 	defer func() {
-		fmt.Println(a.packs)
 		a.lock.Unlock()
 	}()
 	packs := new(packs)
@@ -137,4 +158,22 @@ func (a *app) calculatePacksHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	json.NewEncoder(w).Encode(resp)
+}
+
+func waitForShutdownSignal(ctx context.Context, gracefulShutDownTimeout int64, srv *http.Server, cancel context.CancelFunc) {
+	var gracefulStop = make(chan os.Signal, 1)
+
+	signal.Notify(gracefulStop, syscall.SIGTERM)
+	signal.Notify(gracefulStop, syscall.SIGINT)
+	signal.Notify(gracefulStop, syscall.SIGQUIT)
+
+	select {
+	case <-gracefulStop:
+		cancel()
+		// if stop signal is received, wait for some time so that background workers get time to exit
+		<-time.After(time.Duration(gracefulShutDownTimeout) * time.Millisecond)
+	case <-ctx.Done():
+		// shutdown if context was cancelled by something else before shutdown signal
+	}
+	srv.Shutdown(ctx)
 }
