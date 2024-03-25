@@ -118,5 +118,23 @@ func (a *app) calculatePacksHandler(w http.ResponseWriter, r *http.Request) {
 	if remainingItems > 0 {
 		resp.Data[a.packs[0]] = resp.Data[a.packs[0]] + 1
 	}
+	if len(a.packs) > 1 {
+		if _, ok := resp.Data[a.packs[0]]; ok {
+			divideFactor := a.packs[1] / a.packs[0]
+			if a.packs[1]%a.packs[0] > 0 {
+				divideFactor = 0
+			}
+			if divideFactor != 0 {
+				initialPack := resp.Data[a.packs[0]]
+				resp.Data[a.packs[0]] = resp.Data[a.packs[0]] - ((resp.Data[a.packs[0]] / divideFactor) * divideFactor)
+				resp.Data[a.packs[1]] = resp.Data[a.packs[1]] + initialPack/divideFactor
+			}
+		}
+	}
+	for i, v := range resp.Data {
+		if v == 0 {
+			delete(resp.Data, i)
+		}
+	}
 	json.NewEncoder(w).Encode(resp)
 }
